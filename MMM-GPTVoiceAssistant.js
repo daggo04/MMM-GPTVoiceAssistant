@@ -13,9 +13,11 @@ Module.register("MMM-GPTVoiceAssistant", {
         visualFeedback: true, // Show visual feedback when listening
 
         // Visual settings
-        maxMessages: 10, // Maximum number of messages to show
-        fadePoint: 0.2, // Start fading at 20% of the list
-        fade: true, // Fade messages when reaching fadePoint
+        maxMessages: 20, // Maximum number of messages to keep in history
+        lineHeight: 1.5, // Line height for messages
+        messageMaxWidth: "100%", // Maximum width for message text
+        fadePoint: 0.80, // Start fade at 20% from top
+        fadeLength: 600, // Length of the fade in pixels
     },
 
     // Define states as constants
@@ -41,6 +43,16 @@ Module.register("MMM-GPTVoiceAssistant", {
         
         this.setupAudio();
         this.setupKeyboardControls();
+
+        // Set up CSS variables
+        const root = document.documentElement;
+        root.style.setProperty('--message-max-width', this.config.messageMaxWidth);
+        root.style.setProperty('--line-height', this.config.lineHeight);
+        
+        // Calculate fade start point based on fadePoint configuration
+        // Convert fadePoint (0-1) to pixels from top
+        const fadeStart = `${this.config.fadeLength}px`;
+        root.style.setProperty('--fade-start', fadeStart);
     },
 
         // Add the Magic Mirror notification handler
@@ -79,34 +91,26 @@ Module.register("MMM-GPTVoiceAssistant", {
             type: type
         };
     
-        // For system messages, only add during setup/initialization
-        if (type === 'system') {
-            this.messageHistory.push(newMessage);
-        }
-        // For assistant messages, either update buffer or add new
-        else if (type === 'assistant') {
+        if (type === 'assistant') {
             if (this.currentMessageBuffer === "") {
                 this.messageHistory.push(newMessage);
                 this.currentMessageBuffer = message;
             } else {
-                // Update the last message if it's from the assistant
                 const lastMessage = this.messageHistory[this.messageHistory.length - 1];
                 if (lastMessage && lastMessage.type === 'assistant') {
                     lastMessage.text = this.currentMessageBuffer + message;
                     this.currentMessageBuffer += message;
                 }
             }
-        }
-        // For user messages, always add as new
-        else if (type === 'user') {
+        } else {
             this.messageHistory.push(newMessage);
         }
-        
-        // Keep only the most recent messages by removing from the start of the array
+    
+        // Keep only the most recent messages
         while (this.messageHistory.length > this.config.maxMessages) {
-            this.messageHistory.shift(); // Remove the oldest message
+            this.messageHistory.shift();
         }
-        
+    
         this.updateDom();
     },
 
@@ -442,28 +446,40 @@ Module.register("MMM-GPTVoiceAssistant", {
         }
     },
 
-    calculateOpacity: function(index, total) {
-        if (!this.config.fade) return 1;
-        if (this.config.fadePoint < 0) this.config.fadePoint = 0;
+    updateFadeVariables: function() {
+        const messageHistory = document.querySelector('.message-history');
+        if (!messageHistory) return;
         
-        // Calculate how many messages should stay at full opacity
-        const fullOpacityMessages = Math.ceil(total * this.config.fadePoint);
+        const containerHeight = messageHistory.clientHeight;
+        const fadeStartPixels = containerHeight * this.config.fadePoint;
+        const fadeStart = `${fadeStartPixels}px`;
         
-        // For the newest messages (highest indices), keep full opacity
-        if (index >= total - fullOpacityMessages) {
-            return 1;
-        }
-        
-        // For older messages, create a gradient from 0 to 1
-        // index / (total - fullOpacityMessages) gives us a value from 0 to 1
-        return index / (total - fullOpacityMessages);
+        document.documentElement.style.setProperty('--fade-start', fadeStart);
     },
 
+    calculateMessageVisibility: function(messageEl, containerHeight) {
+        const rect = messageEl.getBoundingClientRect();
+        const containerRect = messageEl.parentElement.getBoundingClientRect();
+        const distanceFromTop = rect.top - containerRect.top;
+        
+        // If message is completely below the fade area, show fully
+        if (distanceFromTop >= this.config.fadeHeight) {
+            return true;
+        }
+        
+        // If message is completely in the fade area, hide it
+        if (rect.bottom <= containerRect.top + this.config.fadeHeight) {
+            return false;
+        }
+        
+        // Message is partially in fade area, keep it visible
+        return true;
+    },
 
     getDom: function() {
         const wrapper = document.createElement("div");
         wrapper.className = "aurora-wrapper";
-    
+
         // Add icon container
         const iconContainer = document.createElement("div");
         iconContainer.className = `icon-container ${this.currentState === this.STATES.ACTIVE ? 'active' : ''}`;
@@ -476,24 +492,21 @@ Module.register("MMM-GPTVoiceAssistant", {
                 style="width:250px;height:250px">
             </lord-icon>`;
         wrapper.appendChild(iconContainer);
-    
+
+        // Create message history wrapper for mask
+        const messageHistoryWrapper = document.createElement("div");
+        messageHistoryWrapper.className = "message-history-wrapper";
+
         // Add message history
         const messageHistory = document.createElement("div");
         messageHistory.className = "message-history";
-    
+
         // Clone and reverse the message array for display
-        // This ensures newest messages are at the bottom
         const displayMessages = [...this.messageHistory].reverse();
-    
-        displayMessages.forEach((msg, index) => {
+
+        displayMessages.forEach((msg) => {
             const messageEntry = document.createElement("div");
             messageEntry.className = `message-entry message-${msg.type}`;
-            
-            // Calculate opacity based on reversed index
-            messageEntry.style.opacity = this.calculateOpacity(
-                displayMessages.length - 1 - index, 
-                displayMessages.length
-            );
             
             const text = document.createElement("div");
             text.textContent = msg.text;
@@ -501,16 +514,19 @@ Module.register("MMM-GPTVoiceAssistant", {
             
             messageHistory.appendChild(messageEntry);
         });
-    
-        wrapper.appendChild(messageHistory);
-    
-        // After rendering, scroll to the bottom to show newest messages
+
+        messageHistoryWrapper.appendChild(messageHistory);
+        wrapper.appendChild(messageHistoryWrapper);
+
+        // After rendering, update fade variables and scroll
         setTimeout(() => {
+            this.updateFadeVariables();
             messageHistory.scrollTop = messageHistory.scrollHeight;
         }, 100);
-    
+
         return wrapper;
     },
+    
 
     getStyles: function() {
         return [

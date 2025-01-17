@@ -8,7 +8,7 @@ A voice-enabled GPT assistant module for MagicMirror². This module provides a c
 - Real-time voice interaction with GPT-4
 - Visual feedback during conversations
 - Automatic timeout after inactivity
-- Message history with fade effect
+- Message history with configurable fade effect
 - Keyboard controls for development/testing
 - Configurable voice trigger phrase
 
@@ -45,49 +45,77 @@ OPENAI_API_KEY=your_api_key_here
 ```
 
 ### 4. Add to Config
-Add the module to your `config/config.js` file:
+Add the module to your `config/config.js.template` file:
 ```js
 {
     module: "MMM-GPTVoiceAssistant",
     position: "bottom_right",
     config: {
-        // Voice trigger settings
-        triggerPhrase: "Hey Aurora",
-        
-        // Keyboard controls (for development)
-        microphoneToggleKey: "o",  // Toggle between OFF and ACTIVE
-        
-        // Timing settings
-        inactivityTimeout: 60000,  // 1 minute in milliseconds
-        
-        // Debug settings
-        debug: false,
-        logAPI: "concise", // "verbose", "concise" or false
-        logActivityUpdates: true, // Log activity updates and timeout countdown for debugging
-        visualFeedback: true, // Toggle indicators to listening state
-
-        // Visual settings
-        maxMessages: 10, // Maximum number of messages to show
-        fadePoint: 0.2, // Set percentage of messages to display before starting to fade
-        fade: true, // Fade messages when reaching fadePoint
+        // Optional configuration options. See configuration section below.
     }
 }
 ```
 
 ## Configuration Options
 
+### Voice Control Settings
 Option|Type|Default|Description
 ------|------|------|-----------
 `triggerPhrase`|`string`|`"Hey Aurora"`|Voice command to activate the assistant
+
+### Development Settings
+Option|Type|Default|Description
+------|------|------|-----------
 `microphoneToggleKey`|`string`|`"o"`|Keyboard shortcut for testing
-`inactivityTimeout`|`number`|`60000`|Time in ms to wait before deactivating (1 minute)
 `debug`|`boolean`|`false`|Enable debug logging
 `logAPI`|`string`|`false`|API logging level ("verbose", "concise", or false)
-`logActivityUpdates`|`boolean`|`true`|Log activity updates and timeout countdown
+`logActivityUpdates`|`boolean`|`false`|Log activity updates and timeout countdown
+
+### Timing Settings
+Option|Type|Default|Description
+------|------|------|-----------
+`inactivityTimeout`|`number`|`60000`|Time in ms to wait before deactivating (1 minute)
+
+### Visual Settings
+Option|Type|Default|Description
+------|------|------|-----------
 `visualFeedback`|`boolean`|`true`|Show visual indicators for listening state
-`maxMessages`|`number`|`10`|Maximum number of messages to show in history
-`fadePoint`|`number`|`0.2`|Start fading messages at this point (0-1)
-`fade`|`boolean`|`true`|Enable message fade effect
+`maxMessages`|`number`|`20`|Maximum number of messages to keep in history
+`messageMaxWidth`|`string`|`"100%"`|Maximum width of message bubbles (CSS value)
+`fadePoint`|`number`|`0.8`|Position to start fading messages (0-1, from top). Where to start fading out the message
+`fadeLength`|`number`|`600`|Length of the fade effect in pixels. This is the distance over which the message fades out. Alter this value to make the fade effect more or less pronounced.
+`lineHeight`|`number`|`1.5`|Line height for messages
+
+## Example Configuration
+
+Here's a complete example with all options:
+```js
+{
+    module: "MMM-GPTVoiceAssistant",
+    position: "bottom_right",
+    config: {
+        // Voice Control
+        triggerPhrase: "Hey Aurora",
+        
+        // Development
+        microphoneToggleKey: "o",
+        debug: false,
+        logAPI: "concise",
+        logActivityUpdates: true,
+        
+        // Timing
+        inactivityTimeout: 60000,
+        
+        // Visual Settings
+        visualFeedback: true,
+        maxMessages: 50,
+        messageMaxWidth: "80%",
+        fadePoint: 0.2,
+        fadeLength: 200,
+        lineHeight: 1.5
+    }
+}
+```
 
 ## Testing & Development
 
@@ -102,7 +130,7 @@ Enable debug logging in your config:
 ```js
 config: {
     debug: true,
-    logAPI: "verbose",  // or "concise"
+    logAPI: "verbose", // or "concise"
     logActivityUpdates: true
 }
 ```
