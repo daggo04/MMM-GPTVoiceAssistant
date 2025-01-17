@@ -20,6 +20,13 @@ Module.register("MMM-GPTVoiceAssistant", {
         fadeLength: 600, // Length of the fade in pixels
     },
 
+    getScripts: function() {
+        return [
+            this.file('function-handler.js') //Load external scripts
+        ];
+    },
+
+
     // Define states as constants
     STATES: {
         OFF: 'OFF',           // Microphone completely off
@@ -48,11 +55,11 @@ Module.register("MMM-GPTVoiceAssistant", {
         const root = document.documentElement;
         root.style.setProperty('--message-max-width', this.config.messageMaxWidth);
         root.style.setProperty('--line-height', this.config.lineHeight);
-        
-        // Calculate fade start point based on fadePoint configuration
-        // Convert fadePoint (0-1) to pixels from top
         const fadeStart = `${this.config.fadeLength}px`;
         root.style.setProperty('--fade-start', fadeStart);
+
+        //Initialize handlers
+        this.functionHandler = new FunctionHandler(this);
     },
 
         // Add the Magic Mirror notification handler
@@ -198,6 +205,10 @@ Module.register("MMM-GPTVoiceAssistant", {
 
                 case "input_audio_buffer.speech_stopped":
                     break;
+
+                case "response.function_call_arguments.done":
+                    this.functionHandler.handleFunctionCall(message);
+                    break;
             }
 
             this.updateDom();
@@ -228,10 +239,11 @@ Module.register("MMM-GPTVoiceAssistant", {
 
     configureAssistant: function() {
         const config = {
-            type: 'response.create',
-            response: {
+            type: 'session.update',
+            session: {
                 modalities: ['text', 'audio'],
-                instructions: "You are Aurora, a helpful assistant for a smart mirror. Be concise and clear in your responses."
+                instructions: "You are Aurora, a helpful assistant for a smart mirror. Be concise and clear in your responses. You can end the conversation by calling the endConversation function when the user asks to end the conversation or say goodbye.",
+                tools: this.functionHandler.getFunctionDefinitions()
             }
         };
         this.dataChannel.send(JSON.stringify(config));
