@@ -1,0 +1,34 @@
+{
+    "name": "mmm-gptvoiceassistant",
+    "version": "1.0.0",
+    "description": "A voice-enabled GPT assistant module for MagicMirror²",
+    "main": "MMM-GPTVoiceAssistant.js",
+    "scripts": {
+      "lint": "eslint .",
+      "lint:fix": "eslint . --fix",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+      "type": "git",
+      "url": "git+https://github.com/yourusername/MMM-GPTVoiceAssistant.git"
+    },
+    "keywords": [
+      "magicmirror",
+      "smartmirror",
+      "voice assistant",
+      "gpt",
+      "openai"
+    ],
+    "author": "Dag Himle",
+    "license": "MIT",
+    "devDependencies": {
+      "eslint": "^8.56.0",
+      "eslint-config-prettier": "^9.1.0",
+      "eslint-plugin-prettier": "^5.1.3",
+      "prettier": "^3.2.5"
+    },
+    "dependencies": {
+      "node-fetch": "^2.7.0",
+      "wrtc": "^0.4.7"
+    }
+  }
