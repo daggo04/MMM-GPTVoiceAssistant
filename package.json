@@ -10,7 +10,7 @@
     },
     "repository": {
       "type": "git",
-      "url": "git+https://github.com/yourusername/MMM-GPTVoiceAssistant.git"
+      "url": "git+https://github.com/daggo04/MMM-GPTVoiceAssistant"
     },
     "keywords": [
       "magicmirror",

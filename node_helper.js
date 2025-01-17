@@ -3,7 +3,7 @@ const fetch = require('node-fetch');
 
 module.exports = NodeHelper.create({
   start: function () {
-    console.log("Starting helper for: MMM-AuroraAssistant");
+    console.log("Starting helper for: MMM-GPTVoiceAssistant");
     this.reset();
   },
 
@@ -76,7 +76,16 @@ module.exports = NodeHelper.create({
     }
   },
 
-  stop: function() {
-    this.reset();
-  }
+    stop: function() {
+        console.log("Stopping module helper: MMM-GPTVoiceAssistant");
+        
+        // Clean up any WebRTC connections if active
+        if (this.peerConnection) {
+            this.peerConnection.close();
+            this.peerConnection = null;
+        }
+        
+        // Reset the state
+        this.reset();
+    },
 });
