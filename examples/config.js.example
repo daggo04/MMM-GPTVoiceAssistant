@@ -1,0 +1,23 @@
+            module: "MMM-GPTVoiceAssistant",
+            position: "bottom_right",
+            config: {
+                // Voice trigger settings
+                triggerPhrase: "Hey Aurora",
+                
+                // Keyboard controls (for development)
+                microphoneToggleKey: "o",  // Toggle between OFF and ACTIVE
+                
+                // Timing settings
+                inactivityTimeout: 60000,  // 1 minute in milliseconds
+                
+                // Debug settings
+                debug: false,
+                logAPI: "concise", // "verbose", "concise" or false
+                logActivityUpdates: true, // Log activity updates and timeout countdown for debugging
+                visualFeedback: true, // Toogle indicators to listening state
+
+                // Visual settings
+                maxMessages: 10, // Maximum number of messages to show
+                fadePoint: 0.2, // Set percentage of messages to display before starting to fade
+                fade: true, // Fade messages when reaching fadePoint
+            }

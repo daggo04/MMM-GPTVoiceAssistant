@@ -82,7 +82,7 @@ Option|Type|Default|Description
 `microphoneToggleKey`|`string`|`"o"`|Keyboard shortcut for testing
 `inactivityTimeout`|`number`|`60000`|Time in ms to wait before deactivating (1 minute)
 `debug`|`boolean`|`false`|Enable debug logging
-`logAPI`|`string`|`"false"`|API logging level ("verbose", "concise", or false)
+`logAPI`|`string`|`false`|API logging level ("verbose", "concise", or false)
 `logActivityUpdates`|`boolean`|`true`|Log activity updates and timeout countdown
 `visualFeedback`|`boolean`|`true`|Show visual indicators for listening state
 `maxMessages`|`number`|`10`|Maximum number of messages to show in history
