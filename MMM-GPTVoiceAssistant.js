@@ -19,14 +19,7 @@ Module.register("MMM-GPTVoiceAssistant", {
         fadePoint: 0.80, // Start fade at 20% from top
         fadeLength: 600, // Length of the fade in pixels
     },
-
-    getScripts: function() {
-        return [
-            this.file('function-handler.js') //Load external scripts
-        ];
-    },
-
-
+    
     // Define states as constants
     STATES: {
         OFF: 'OFF',           // Microphone completely off
@@ -46,7 +39,7 @@ Module.register("MMM-GPTVoiceAssistant", {
         this.assistantResponseTimer = null;
         this.isAssistantSpeaking = false;
         this.messageHistory = [];
-        this.currentMessageBuffer = ""; // Add this to accumulate message parts
+        this.currentMessageBuffer = "";
         
         this.setupAudio();
         this.setupKeyboardControls();
@@ -57,9 +50,6 @@ Module.register("MMM-GPTVoiceAssistant", {
         root.style.setProperty('--line-height', this.config.lineHeight);
         const fadeStart = `${this.config.fadeLength}px`;
         root.style.setProperty('--fade-start', fadeStart);
-
-        //Initialize handlers
-        this.functionHandler = new FunctionHandler(this);
     },
 
         // Add the Magic Mirror notification handler
@@ -156,19 +146,75 @@ Module.register("MMM-GPTVoiceAssistant", {
         }
     },
 
-    setupWebRTC: async function() {
-        if (this.currentState !== this.STATES.ACTIVE) {
-            return;
+    async setupWebRTCConnection(token) {
+        Log.info("Setting up WebRTC connection");
+        
+        // Create a new RTCPeerConnection
+        this.peerConnection = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+        // Connection state changes with better error handling
+        this.peerConnection.onconnectionstatechange = () => {
+            Log.info("WebRTC connection state:", this.peerConnection.connectionState);
+            if (this.peerConnection.connectionState === 'failed') {
+                Log.error("WebRTC connection failed. Retrying...");
+                this.setState(this.STATES.OFF);
+            }
+            else if (this.peerConnection.connectionState === 'disconnected') {
+                Log.error("WebRTC connection disconnected. Retrying...");
+                this.setState(this.STATES.OFF);
+            }
+            else if (this.peerConnection.connectionState === 'connected') {
+                Log.info("WebRTC connection established");
+                this.addMessage("I'm listening...", 'system');
+            }
+        };
+
+        this.peerConnection.oniceconnectionstatechange = () => {
+            if(this.config.debug) {
+                Log.info("ICE connection state:", this.peerConnection.iceConnectionState);
+            }
+        };
+
+        this.peerConnection.onicegatheringstatechange = () => {
+            if(this.config.debug) {
+                Log.info("ICE gathering state:", this.peerConnection.iceGatheringState);
+            }
+        };
+
+        // Add audio track
+        if (this.audioStream) {
+            this.audioStream.getAudioTracks().forEach(track => {
+                if (this.config.debug) {
+                    Log.info("Adding audio track to connection");
+                }
+                this.peerConnection.addTrack(track, this.audioStream);
+            });
         }
 
-        try {
-            this.addMessage("Connecting to assistant...", 'system');
-            Log.info("Requesting OpenAI token");
-            this.sendSocketNotification("START_SESSION", {});
-        } catch (error) {
-            Log.error("Error initiating WebRTC setup:", error);
-            this.addMessage("Error setting up connection", 'system');
-        }
+        // Create data channel
+        this.dataChannel = this.peerConnection.createDataChannel('response');
+        this.setupDataChannel();
+
+        // Handle remote tracks
+        this.peerConnection.ontrack = (event) => {
+            Log.info("Received remote track:", event.track.kind);
+            const audio = new Audio();
+            audio.srcObject = event.streams[0];
+            audio.play();
+        };
+
+        // Create and set local description
+        const offer = await this.peerConnection.createOffer();
+        await this.peerConnection.setLocalDescription(offer);
+        Log.info("Created and set local description");
+
+        // Send offer to node helper for relay
+        this.sendSocketNotification("RELAY_TO_OPENAI", {
+            sdp: this.peerConnection.localDescription.sdp,
+            token: token
+        });
     },
 
 
@@ -200,14 +246,9 @@ Module.register("MMM-GPTVoiceAssistant", {
                     }
                     break;
 
-                case "input_audio_buffer.speech_started":
-                    break;
-
-                case "input_audio_buffer.speech_stopped":
-                    break;
-
                 case "response.function_call_arguments.done":
-                    this.functionHandler.handleFunctionCall(message);
+                    // Handle function calls through the node helper
+                    this.sendSocketNotification("HANDLE_FUNCTION_CALL", message);
                     break;
             }
 
@@ -224,32 +265,23 @@ Module.register("MMM-GPTVoiceAssistant", {
             if (this.config.debug){
                 Log.info("Data channel opened");
             }
-            this.configureAssistant();
+            // Request the assistant configuration from the node helper
+            this.sendSocketNotification("REQUEST_ASSISTANT_CONFIG");
         };
-
+    
         this.dataChannel.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
+                // Ensure message has required type field before processing
+                if (!message.type) {
+                    Log.error("Received message without type:", message);
+                    return;
+                }
                 this.handleOpenAIMessage(message);
             } catch (error) {
                 Log.error("Error parsing message:", error);
             }
         };
-    },
-
-    configureAssistant: function() {
-        const config = {
-            type: 'session.update',
-            session: {
-                modalities: ['text', 'audio'],
-                instructions: "You are Aurora, a helpful assistant for a smart mirror. Be concise and clear in your responses. You can end the conversation by calling the endConversation function when the user asks to end the conversation or say goodbye.",
-                tools: this.functionHandler.getFunctionDefinitions()
-            }
-        };
-        this.dataChannel.send(JSON.stringify(config));
-        if (this.config.debug) {
-            Log.info("Configuring assistant with:", JSON.stringify(config, null, 2));
-        }
     },
 
     startActiveListening: function() {
@@ -258,7 +290,8 @@ Module.register("MMM-GPTVoiceAssistant", {
         this.lastAssistantResponseTimestamp = Date.now();
         this.isListening = true;
         this.currentMessageBuffer = "";
-        this.setupWebRTC();
+        // Request a token from the node helper to start the WebRTC session
+        this.sendSocketNotification("START_SESSION", {});
     },
 
     stopActiveListening: function() {
@@ -302,101 +335,87 @@ Module.register("MMM-GPTVoiceAssistant", {
     },
 
     socketNotificationReceived: async function(notification, payload) {
-        if (notification === "TOKEN_RECEIVED") {
-            Log.info("Received OpenAI token");
-            try {
-                Log.info("Setting up WebRTC connection");
-                
-                // Create a new RTCPeerConnection
-                this.peerConnection = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-                });
+        switch (notification) {
+            case "TOKEN_RECEIVED":
+                Log.info("Received OpenAI token");
+                try {
+                    await this.setupWebRTCConnection(payload.token);
+                } catch (error) {
+                    Log.error("Error in WebRTC setup:", error);
+                    this.setState(this.STATES.OFF);
+                }
+                break;
 
-                // Connection state changes with better error handling
-                this.peerConnection.onconnectionstatechange = () => {
-                    Log.info("WebRTC connection state:", this.peerConnection.connectionState);
-                    if (this.peerConnection.connectionState === 'failed') {
-                        Log.error("WebRTC connection failed. Retrying...");
-                        this.setState(this.STATES.OFF);
-                    }
-                    else if (this.peerConnection.connectionState === 'disconnected') {
-                        Log.error("WebRTC connection disconnected. Retrying...");
-                        this.setState(this.STATES.OFF);
-                    }
-                    else if (this.peerConnection.connectionState === 'connected') {
-                        Log.info("WebRTC connection established");
-                        this.addMessage("Connected to assistant", 'system');
-                    }
-                };
-
-                this.peerConnection.oniceconnectionstatechange = () => {
-                    if(this.debug) {
-                        Log.info("ICE connection state:", this.peerConnection.iceConnectionState);
-                    }
-                };
-
-                this.peerConnection.onicegatheringstatechange = () => {
-                    if(this.debug) {
-                        Log.info("ICE gathering state:", this.peerConnection.iceGatheringState);
-                    }
-                };
-
-                // Add audio track
-                if (this.audioStream) {
-                    this.audioStream.getAudioTracks().forEach(track => {
-                        if (this.config.debug) {
-                        Log.info("Adding audio track to connection");
-                        }
-                        this.peerConnection.addTrack(track, this.audioStream);
+            case "OPENAI_ANSWER":
+                try {
+                    const answer = new RTCSessionDescription({
+                        type: 'answer',
+                        sdp: payload.sdp
                     });
+                    await this.peerConnection.setRemoteDescription(answer);
+                    if (this.config.debug) {
+                        Log.info("Successfully set remote description");
+                    }
+                } catch (error) {
+                    Log.error("Error setting remote description:", error);
+                    this.setState(this.STATES.OFF);
                 }
+                break;
 
-                // Create data channel
-                this.dataChannel = this.peerConnection.createDataChannel('response');
-                this.setupDataChannel();
-
-                // Handle remote tracks
-                this.peerConnection.ontrack = (event) => {
-                    Log.info("Received remote track:", event.track.kind);
-                    const audio = new Audio();
-                    audio.srcObject = event.streams[0];
-                    audio.play();
-                };
-
-                // Create and set local description
-                const offer = await this.peerConnection.createOffer();
-                await this.peerConnection.setLocalDescription(offer);
-                Log.info("Created and set local description");
-
-                // Send offer to node helper for relay
-                this.sendSocketNotification("RELAY_TO_OPENAI", {
-                    sdp: this.peerConnection.localDescription.sdp,
-                    token: payload.token
-                });
-
-            } catch (error) {
-                Log.error("Error in WebRTC setup:", error);
+            case "ERROR":
+                Log.error("Received error:", payload.message);
+                this.assistantMessage = "Connection error occurred";
+                this.updateDom();
                 this.setState(this.STATES.OFF);
-            }
-        } else if (notification === "OPENAI_ANSWER") {
-            try {
-                const answer = new RTCSessionDescription({
-                    type: 'answer',
-                    sdp: payload.sdp
-                });
-                await this.peerConnection.setRemoteDescription(answer);
-                if (this.config.debug) {
-                    Log.info("Successfully set remote description");
+                break;
+
+            case "ASSISTANT_CONFIG":
+                if (this.dataChannel && this.dataChannel.readyState === "open") {
+                    this.dataChannel.send(JSON.stringify(payload));
                 }
-            } catch (error) {
-                Log.error("Error setting remote description:", error);
-                this.setState(this.STATES.OFF);
-            }
-        } else if (notification === "ERROR") {
-            Log.error("Received error:", payload.message);
-            this.assistantMessage = "Connection error occurred";
-            this.updateDom();
-            this.setState(this.STATES.OFF);
+                break;
+
+            case "FUNCTION_RESULT":
+                if (this.dataChannel && this.dataChannel.readyState === "open") {
+                    const event = {
+                        type: 'conversation.item.create',
+                        item: {
+                            type: 'function_call_output',
+                            call_id: payload.call_id,
+                            output: JSON.stringify(payload.result)
+                        }
+                    };
+                    this.dataChannel.send(JSON.stringify(event));
+                }
+                break;
+
+            case "CHANGE_STATE":
+                if (payload.state && this.STATES[payload.state]) {
+                    this.setState(this.STATES[payload.state]);
+                }
+                break;
+
+            case "UPDATE_VOLUME":
+                if (typeof payload.level === 'number') {
+                    this.sendNotification("VOLUME_SET", payload.level);
+                }
+                break;
+
+            case "MODULE_VISIBILITY":
+                if (payload.action === "HIDE_MODULE") {
+                    this.sendNotification("MODULE_HIDE", payload.moduleName);
+                } else if (payload.action === "SHOW_MODULE") {
+                    this.sendNotification("MODULE_SHOW", payload.moduleName);
+                }
+                break;
+
+            case "UPDATE_WEATHER":
+                this.sendNotification("WEATHER_UPDATE", payload);
+                break;
+                
+            default:
+                Log.warn("Received unhandled socket notification:", notification);
+                break;
         }
     },
 
