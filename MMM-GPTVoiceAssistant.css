@@ -4,32 +4,57 @@
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    padding: 20px;
+    padding: 15px;
     color: #ffffff;
     font-family: "Arial", sans-serif;
     transition: all 0.3s ease;
-    min-height: 300px;
-    max-width: 100%;
+    height: 100%; /* Fill available height */
+    width: 100%;
+    max-width: 800px; /* Limit maximum width */
+    margin: 0 auto;
+    position: relative;
 }
 
 /* Message history container */
 .message-history {
     display: flex;
-    flex-direction: column-reverse; /* Latest message at bottom */
+    flex-direction: column-reverse; /* Reverse the display order */
     width: 100%;
-    max-height: 400px;
-    overflow-y: hidden;
+    max-height: 400px; /* Set maximum height */
+    overflow-y: auto; /* Enable vertical scrolling */
+    scrollbar-width: none; /* Hide scrollbar for Firefox */
+    -ms-overflow-style: none; /* Hide scrollbar for IE and Edge */
+    margin-top: 20px;
+}
+
+/* Hide scrollbar for Chrome/Safari/Opera */
+.message-history::-webkit-scrollbar {
+    display: none;
 }
 
 /* Individual message */
 .message-entry {
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: 10px;
-    padding: 15px;
-    margin: 5px 0;
+    padding: 8px 12px;
+    margin: 4px 0;
     transition: opacity 0.3s ease;
     word-wrap: break-word;
     max-width: 100%;
+    border-radius: 4px;
+}
+
+/* Message type styling */
+.message-system {
+    font-style: italic;
+    font-size: 0.9em;
+    opacity: 0.7;
+}
+
+.message-user {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.message-assistant {
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 /* Icon container */
@@ -38,16 +63,10 @@
     opacity: 0;
     transition: opacity 0.3s ease;
     height: 0;
+    position: relative;
 }
 
 .icon-container.active {
     opacity: 1;
     height: 250px;
-}
-
-/* State indicator */
-.state-indicator {
-    font-size: 0.8em;
-    opacity: 0.7;
-    margin-bottom: 10px;
 }

@@ -14,7 +14,7 @@ Module.register("MMM-GPTVoiceAssistant", {
 
         // Visual settings
         maxMessages: 10, // Maximum number of messages to show
-        fadePoint: 0.2, // Start fading at 25% of the list
+        fadePoint: 0.2, // Start fading at 20% of the list
         fade: true, // Fade messages when reaching fadePoint
     },
 
@@ -25,9 +25,8 @@ Module.register("MMM-GPTVoiceAssistant", {
     },
 
     start: function() {
-        Log.info("Starting module: MMM-AuroraAssistant");
+        Log.info("Starting module: MMM-GPTVoiceAssistant");
         this.currentState = this.STATES.OFF;
-        this.assistantMessage = "Aurora Assistant is ready!";
         this.userMessage = "";
         this.isListening = false;
         this.peerConnection = null;
@@ -70,26 +69,45 @@ Module.register("MMM-GPTVoiceAssistant", {
         this.updateDom();
     },
 
-    addMessage: function(message) {
-        this.messageHistory.push({
+    addMessage: function(message, type = 'system') {
+        // Don't add empty messages
+        if (!message || message.trim() === '') return;
+    
+        const newMessage = {
             text: message,
-            timestamp: Date.now()
-        });
+            timestamp: Date.now(),
+            type: type
+        };
+    
+        // For system messages, only add during setup/initialization
+        if (type === 'system') {
+            this.messageHistory.push(newMessage);
+        }
+        // For assistant messages, either update buffer or add new
+        else if (type === 'assistant') {
+            if (this.currentMessageBuffer === "") {
+                this.messageHistory.push(newMessage);
+                this.currentMessageBuffer = message;
+            } else {
+                // Update the last message if it's from the assistant
+                const lastMessage = this.messageHistory[this.messageHistory.length - 1];
+                if (lastMessage && lastMessage.type === 'assistant') {
+                    lastMessage.text = this.currentMessageBuffer + message;
+                    this.currentMessageBuffer += message;
+                }
+            }
+        }
+        // For user messages, always add as new
+        else if (type === 'user') {
+            this.messageHistory.push(newMessage);
+        }
         
-        // Keep only the last N messages
-        if (this.messageHistory.length > this.config.maxMessages) {
-            this.messageHistory = this.messageHistory.slice(-this.config.maxMessages);
+        // Keep only the most recent messages by removing from the start of the array
+        while (this.messageHistory.length > this.config.maxMessages) {
+            this.messageHistory.shift(); // Remove the oldest message
         }
         
         this.updateDom();
-    },
-
-    updateCurrentMessage: function(delta) {
-        this.currentMessageBuffer += delta;
-        if (this.messageHistory.length > 0) {
-            this.messageHistory[this.messageHistory.length - 1].text = this.currentMessageBuffer;
-            this.updateDom();
-        }
     },
 
 
@@ -111,14 +129,18 @@ Module.register("MMM-GPTVoiceAssistant", {
 
     setupAudio: async function() {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const constraints = {
+                audio: true,
+                video: false
+            };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
             this.audioStream = stream;
             if (this.config.debug) {
                 Log.info("Audio stream initialized");
             }
         } catch (error) {
             Log.error("Error setting up audio:", error);
-            this.assistantMessage = "Error initializing audio system";
+            this.addMessage("Error initializing audio system", 'system');
             this.updateDom();
         }
     },
@@ -129,60 +151,28 @@ Module.register("MMM-GPTVoiceAssistant", {
         }
 
         try {
-            // First, request a token from the node helper
-            this.sendSocketNotification("START_SESSION", {});
+            this.addMessage("Connecting to assistant...", 'system');
             Log.info("Requesting OpenAI token");
-            this.assistantMessage = "Connecting to assistant...";
-            this.updateDom();
+            this.sendSocketNotification("START_SESSION", {});
         } catch (error) {
             Log.error("Error initiating WebRTC setup:", error);
-            this.assistantMessage = "Error setting up connection";
-            this.updateDom();
+            this.addMessage("Error setting up connection", 'system');
         }
     },
 
 
     handleOpenAIMessage: function(message) {
         try {
-            // Log message for debugging
             this.logMessage(message);
             
             switch (message.type) {
                 case "response.audio_transcript.delta":
                     this.isAssistantSpeaking = true;
-                    
-                    // If this is the start of a new message
-                    if (this.currentMessageBuffer === "") {
-                        // If there are existing messages, shift them down
-                        if (this.messageHistory.length > 0) {
-                            // Add new empty message at the start
-                            this.messageHistory.unshift({
-                                text: "",
-                                timestamp: Date.now()
-                            });
-                            
-                            // Keep only the maximum number of messages
-                            if (this.messageHistory.length > this.config.maxMessages) {
-                                this.messageHistory = this.messageHistory.slice(0, this.config.maxMessages);
-                            }
-                        } else {
-                            // If no messages exist, create first one
-                            this.messageHistory.unshift({
-                                text: "",
-                                timestamp: Date.now()
-                            });
-                        }
-                    }
-                    
-                    // Update the current message buffer and the first message
-                    this.currentMessageBuffer += message.delta;
-                    this.messageHistory[0].text = this.currentMessageBuffer;
+                    this.addMessage(message.delta, 'assistant');
                     break;
 
                 case "response.done":
-                    // Message is complete, prepare for next one
                     this.currentMessageBuffer = "";
-                    // Assistant finished speaking
                     this.isAssistantSpeaking = false;
                     this.lastAssistantResponseTimestamp = Date.now();
                     if (this.config.logActivityUpdates) {
@@ -192,24 +182,25 @@ Module.register("MMM-GPTVoiceAssistant", {
 
                 case "conversation.item.created":
                     if (message.item?.role === "user") {
-                        // User was detected speaking
                         this.lastUserSpeechTimestamp = Date.now();
                         if (this.config.logActivityUpdates) {
                             Log.info("User spoke, updating timestamp");
                         }
                     }
                     break;
+
+                case "input_audio_buffer.speech_started":
+                    break;
+
+                case "input_audio_buffer.speech_stopped":
+                    break;
             }
 
-            // Update the DOM
             this.updateDom();
 
         } catch (error) {
             Log.error("Error processing message:", error);
-        }
-
-        if (this.config.debug) {
-            Log.info("Message History:", this.messageHistory);
+            this.addMessage("Error processing message", 'system');
         }
     },
 
@@ -250,7 +241,6 @@ Module.register("MMM-GPTVoiceAssistant", {
         this.lastUserSpeechTimestamp = Date.now();
         this.lastAssistantResponseTimestamp = Date.now();
         this.isListening = true;
-        this.addMessage("I'm listening...");
         this.currentMessageBuffer = "";
         this.setupWebRTC();
     },
@@ -297,6 +287,7 @@ Module.register("MMM-GPTVoiceAssistant", {
 
     socketNotificationReceived: async function(notification, payload) {
         if (notification === "TOKEN_RECEIVED") {
+            Log.info("Received OpenAI token");
             try {
                 Log.info("Setting up WebRTC connection");
                 
@@ -311,6 +302,14 @@ Module.register("MMM-GPTVoiceAssistant", {
                     if (this.peerConnection.connectionState === 'failed') {
                         Log.error("WebRTC connection failed. Retrying...");
                         this.setState(this.STATES.OFF);
+                    }
+                    else if (this.peerConnection.connectionState === 'disconnected') {
+                        Log.error("WebRTC connection disconnected. Retrying...");
+                        this.setState(this.STATES.OFF);
+                    }
+                    else if (this.peerConnection.connectionState === 'connected') {
+                        Log.info("WebRTC connection established");
+                        this.addMessage("Connected to assistant", 'system');
                     }
                 };
 
@@ -370,8 +369,9 @@ Module.register("MMM-GPTVoiceAssistant", {
                     sdp: payload.sdp
                 });
                 await this.peerConnection.setRemoteDescription(answer);
-                Log.info("Successfully established WebRTC connection");
-                this.assistantMessage = "I'm listening...";
+                if (this.config.debug) {
+                    Log.info("Successfully set remote description");
+                }
             } catch (error) {
                 Log.error("Error setting remote description:", error);
                 this.setState(this.STATES.OFF);
@@ -442,24 +442,28 @@ Module.register("MMM-GPTVoiceAssistant", {
         }
     },
 
-    // Calculate opacity based on position
     calculateOpacity: function(index, total) {
         if (!this.config.fade) return 1;
         if (this.config.fadePoint < 0) this.config.fadePoint = 0;
         
-        const startingPoint = total * this.config.fadePoint;
-        const numFadeSteps = total - startingPoint;
+        // Calculate how many messages should stay at full opacity
+        const fullOpacityMessages = Math.ceil(total * this.config.fadePoint);
         
-        if (index >= startingPoint) {
-            return 1 - (index - startingPoint) / numFadeSteps;
+        // For the newest messages (highest indices), keep full opacity
+        if (index >= total - fullOpacityMessages) {
+            return 1;
         }
-        return 1;
+        
+        // For older messages, create a gradient from 0 to 1
+        // index / (total - fullOpacityMessages) gives us a value from 0 to 1
+        return index / (total - fullOpacityMessages);
     },
+
 
     getDom: function() {
         const wrapper = document.createElement("div");
         wrapper.className = "aurora-wrapper";
-
+    
         // Add icon container
         const iconContainer = document.createElement("div");
         iconContainer.className = `icon-container ${this.currentState === this.STATES.ACTIVE ? 'active' : ''}`;
@@ -472,15 +476,24 @@ Module.register("MMM-GPTVoiceAssistant", {
                 style="width:250px;height:250px">
             </lord-icon>`;
         wrapper.appendChild(iconContainer);
-
+    
         // Add message history
         const messageHistory = document.createElement("div");
         messageHistory.className = "message-history";
-
-        this.messageHistory.forEach((msg, index) => {
+    
+        // Clone and reverse the message array for display
+        // This ensures newest messages are at the bottom
+        const displayMessages = [...this.messageHistory].reverse();
+    
+        displayMessages.forEach((msg, index) => {
             const messageEntry = document.createElement("div");
-            messageEntry.className = "message-entry";
-            messageEntry.style.opacity = this.calculateOpacity(index, this.messageHistory.length);
+            messageEntry.className = `message-entry message-${msg.type}`;
+            
+            // Calculate opacity based on reversed index
+            messageEntry.style.opacity = this.calculateOpacity(
+                displayMessages.length - 1 - index, 
+                displayMessages.length
+            );
             
             const text = document.createElement("div");
             text.textContent = msg.text;
@@ -488,9 +501,14 @@ Module.register("MMM-GPTVoiceAssistant", {
             
             messageHistory.appendChild(messageEntry);
         });
-
+    
         wrapper.appendChild(messageHistory);
-
+    
+        // After rendering, scroll to the bottom to show newest messages
+        setTimeout(() => {
+            messageHistory.scrollTop = messageHistory.scrollHeight;
+        }, 100);
+    
         return wrapper;
     },
 
